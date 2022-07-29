@@ -2,6 +2,10 @@
 Cobalt Strike Aggressor scripts
 
 ## Chisel script
+What does the script do (*chisel* module)?
+1. The script first checks that the chisel file exists on the target host.
+2. If the file doesn't exist, then it's uploaded to the host and then launched. If the file exists, then it's launched.
+
 The *chisel.cna* needs these files and these files must be located on the teamserver:
 - logs/
   - chisel_client_job_pids.log
