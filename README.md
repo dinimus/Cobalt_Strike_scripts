@@ -2,7 +2,7 @@
 Cobalt Strike Aggressor scripts
 
 ## Chisel script
-The chisel.cna needs these files and these files must be located on the teamserver:
+The *chisel.cna* needs these files and these files must be located on the teamserver:
 - logs/
   - chisel_client_job_pids.log
   - chisel_tms_job_pids.log
@@ -22,6 +22,8 @@ The chisel.cna needs these files and these files must be located on the teamserv
 You must have write permissions to the log files.
 
 You can download last versions of chisel from https://github.com/jpillora/chisel
+
+Change *$chisel_user*, *$chisel_pass* in the *chisel.cna*.
 
 ### Modules
 🔺 **chisel**
