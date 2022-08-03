@@ -1,6 +1,8 @@
 # Cobalt_Strike_scripts
 Cobalt Strike Aggressor scripts
 
+ATTENTION: ONLY EDUCATION & RESEARCH PURPOSES ALLOWED
+
 ## Chisel script
 What does the script do (*chisel* module)?
 1. The script first checks that the chisel file exists on the target host.
